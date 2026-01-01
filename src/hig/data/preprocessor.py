@@ -3,9 +3,11 @@ import os
 from datasets import Dataset, Features, Value, Image
 from tqdm import tqdm
 from typing import List, Dict, Optional
+from pathlib import Path
+
 
 # Import the updated translator
-from viet_diffusion.utils.translator import VNTranslator
+from hig.utils.translator import VNTranslator
 
 
 class DataPreprocessor:
@@ -83,6 +85,16 @@ class DataPreprocessor:
                 filename = os.path.basename(img_path)
                 # OR: relative_path = os.path.relpath(img_path, "OLD_ROOT")
                 img_path = os.path.join(image_root_override, filename)
+            else:
+                # Convert Windows paths to Linux paths
+                # E.g., E:\VSCode\hdb\data\02_page_images\... -> data/raw/02_page_images/...
+                if "\\" in img_path or img_path.startswith("E:"):
+                    # Extract the path after "data\"
+                    parts = img_path.replace("\\", "/").split("/")
+                    if "data" in parts:
+                        data_index = parts.index("data")
+                        relative_path = "/".join(parts[data_index + 1 :])
+                        img_path = os.path.join("data/raw", relative_path)
 
             if os.path.exists(img_path):
                 valid_images.append(img_path)
@@ -92,6 +104,11 @@ class DataPreprocessor:
                 pass
 
         print(f"Found {len(valid_images)} valid pairs out of {len(raw_data)} total.")
+
+        # Check if we have any valid data
+        if len(valid_images) == 0:
+            print("Warning: No valid image-caption pairs found. Skipping this file.")
+            return
 
         # 2. Translation Phase
         print("Starting translation...")
@@ -131,11 +148,11 @@ class DataPreprocessor:
 # Usage Example
 if __name__ == "__main__":
     # Example paths
-    raw_data_folder = "data/04_output"
+    raw_data_folder = Path("data/raw/04_output")
 
     # Initialize
     processor = DataPreprocessor(
-        output_dir="./processed",
+        output_dir="data/processed",
         n_gpu_layers=-1,  # Use all GPU layers for translation speed
     )
 

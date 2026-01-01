@@ -1,7 +1,15 @@
 import os
+import re
 from llama_cpp import Llama
 from huggingface_hub import hf_hub_download
 from typing import Union, List, Optional
+
+"""
+Translator module using GGUF models via llama.cpp for Vietnamese to English translation.
+This module performs 2 main functions:
+1. A class that wraps around a GGUF model to perform translations.
+2. self.translate() taking in Vietnamese text/list of texts and returning English translations.
+"""
 
 
 class VNTranslator:
@@ -9,7 +17,7 @@ class VNTranslator:
         self,
         model_path: Optional[str] = None,
         repo_id: str = "Qwen/Qwen3-8B-GGUF",
-        filename: str = "qwen3-8b.gguf",
+        filename: str = "Qwen3-8B-Q4_K_M.gguf",
         n_gpu_layers: int = -1,  # -1 = Offload all layers to GPU
         n_ctx: int = 4096,  # Context window
         verbose: bool = False,
@@ -69,7 +77,8 @@ class VNTranslator:
             "Translate the following Vietnamese text to English. "
             "Return ONLY the English translation. Do not include original text or explanations."
         )
-
+        # Remove this line to switch to non-thinking mode
+        # text = text + "/no_think"
         messages = [
             {"role": "system", "content": system_content},
             {"role": "user", "content": text},
@@ -83,6 +92,12 @@ class VNTranslator:
             )
             # Extract only the content
             translation = output["choices"][0]["message"]["content"]
+
+            # Remove thinking tags if present
+            translation = re.sub(
+                r"<think>.*?</think>", "", translation, flags=re.DOTALL
+            )
+
             return translation.strip()
 
         except Exception as e:
