@@ -69,13 +69,118 @@ class VNTranslator:
         Translates text from Vietnamese to English.
         """
         if isinstance(text, str):
-            return self._generate_translation(text)
+            print("Translating single string...")
+            print(f"Input VN: {text}")
+            res = self._generate_translation(self._clean_content(text))
+            print(f"Output EN: {res}")
+            return res
         elif isinstance(text, list):
             # GGUF doesn't support true batching like PyTorch, so we loop.
             # This is still fast enough for preprocessing.
-            return [self._generate_translation(t) for t in text]
+            print(f"Translating list of {len(text)} strings...")
+            results = []
+            for idx, item in enumerate(text):
+                print(f"\n[{idx + 1}/{len(text)}] Input VN: {item}")
+                cleaned = self._clean_content(item)
+                translated = self._generate_translation(cleaned)
+                print(f"[{idx + 1}/{len(text)}] Output EN: {translated}")
+                results.append(translated)
+            return results
         else:
             raise ValueError("Input text must be a string or a list of strings.")
+
+    import re
+
+    def _clean_content(self, text: str) -> str:
+        """
+        Converts structured Vietnamese image descriptions into a clean,
+        paragraph-format Vietnamese description.
+
+        Removes headers, markdown, numbering, and meta-instructions (Lưu ý)
+        without translating.
+        """
+        system_content = (
+            "You are a professional Vietnamese text editor. "
+            "Your task is to rewrite structured image descriptions into a single, fluent Vietnamese paragraph. "
+            "STRICT RULES:\n"
+            "1. Do NOT translate. Keep the output in Vietnamese.\n"
+            "2. Remove all section headers (e.g., '1. Bối cảnh', '2. Mô tả'), bullet points, and numbering.\n"
+            "3. Remove Markdown formatting (such as **bold** or *italics*).\n"
+            "4. Remove meta-instructions or notes (specifically the 'Lưu ý' section).\n"
+            "5. Merge the remaining sentences into a natural flow."
+        )
+
+        # One-shot example from the dataset
+        example_input = """Dưới đây là mô tả chi tiết hình ảnh:
+
+**1. Bối cảnh, đối tượng chính, màu sắc và hành động:**
+
+Hình ảnh là một biểu tượng tròn, có vẻ như là một ấn phẩm sách hoặc tài liệu. Phần nền của biểu tượng là một họa tiết hình tròn phức tạp, có các hình ảnh động vật và con người được khắc tỉ mỉ, tạo cảm giác như một bản đồ hoặc một hình ảnh mang tính biểu tượng. Bên trong hình tròn là một vòng tròn trắng, làm nổi bật các yếu tố chính.
+
+Đối tượng chính là dòng chữ màu đen lớn, in trên vòng tròn trắng.
+
+Màu sắc chủ đạo là đen, trắng và xám. Màu đen được sử dụng cho chữ và các chi tiết trên họa tiết nền, tạo sự tương phản mạnh mẽ với màu trắng.
+
+Hành động không rõ ràng, hình ảnh chủ yếu là tĩnh, thể hiện một ấn phẩm hoặc tài liệu.
+
+**2. Mô tả con người/nhân vật (nếu có):**
+
+Hình ảnh không có con người hoặc nhân vật rõ ràng.
+
+**3. Trích dẫn nội dung chữ:**
+
+Dòng chữ chính là: **"LỊCH SỬ VIỆT NAM BẢNG TRANH"** (Lịch sử Việt Nam tranh)
+
+Dưới dòng chữ chính là: **"TẬP 12: CỔ LAU VẠN THÁNG VƯƠNG"** (Tập 12: Cổ Lau Vạn Tháng Vương)
+
+**4. Lưu ý:**
+
+Không giả định thể loại hoặc ngữ cảnh nếu không được thể hiện rõ.
+
+Không dùng các câu dẫn nhập như 'Hình ảnh cho thấy', 'Bức tranh mô tả'."""
+
+        # Updated output: Vietnamese, paragraph form, no headers, no "Lưu ý"
+        example_output = (
+            "Hình ảnh là một biểu tượng tròn, có vẻ như là một ấn phẩm sách hoặc tài liệu. "
+            "Phần nền của biểu tượng là một họa tiết hình tròn phức tạp, có các hình ảnh động vật và con người được khắc tỉ mỉ, "
+            "tạo cảm giác như một bản đồ hoặc một hình ảnh mang tính biểu tượng. "
+            "Bên trong hình tròn là một vòng tròn trắng, làm nổi bật các yếu tố chính. "
+            "Đối tượng chính là dòng chữ màu đen lớn, in trên vòng tròn trắng. "
+            "Màu sắc chủ đạo là đen, trắng và xám; màu đen được sử dụng cho chữ và các chi tiết trên họa tiết nền, "
+            "tạo sự tương phản mạnh mẽ với màu trắng. Hình ảnh chủ yếu là tĩnh, thể hiện một ấn phẩm hoặc tài liệu. "
+            "Hình ảnh không có con người hoặc nhân vật rõ ràng. "
+            'Dòng chữ chính là "LỊCH SỬ VIỆT NAM BẢNG TRANH" (Lịch sử Việt Nam tranh), '
+            'và dưới đó là "TẬP 12: CỔ LAU VẠN THÁNG VƯƠNG" (Tập 12: Cổ Lau Vạn Tháng Vương).'
+        )
+
+        # Flag to suppress reasoning/thinking in some models (if supported by your prompt template)
+        processed_input = text + "/no_think"
+
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": example_input},
+            {"role": "assistant", "content": example_output},
+            {"role": "user", "content": processed_input},
+        ]
+
+        try:
+            output = self.llm.create_chat_completion(
+                messages=messages,
+                temperature=0.1,  # Keep low for deterministic cleaning
+                max_tokens=1024,
+            )
+            cleaned_content = output["choices"][0]["message"]["content"]
+
+            # Remove thinking tags if the model outputs them despite instructions
+            cleaned_content = re.sub(
+                r"<think>.*?</think>", "", cleaned_content, flags=re.DOTALL
+            )
+
+            return cleaned_content.strip()
+
+        except Exception as e:
+            print(f"Content Cleaning Error: {e}")
+            return text  # Fallback to original text if failure
 
     def _generate_translation(self, text: str) -> str:
         # Strict system prompt to ensure clean output

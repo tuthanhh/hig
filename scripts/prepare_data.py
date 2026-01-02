@@ -15,14 +15,25 @@ from hig.data.preprocessor import DataPreprocessor
 """
 Data Preprocessing Script
 This script does the following:
-1. *Reads a JSONL file* containing image paths and Vietnamese captions.
+1. *Reads JSONL files* containing image paths and Vietnamese captions.
 2. Validates that each image can be opened.
 3. Translates Vietnamese captions to English using a GGUF model.
 4. Saves the processed dataset in Hugging Face Arrow format.
-Basic usage:
-uv run scripts/prepare_data.py \
-    --jsonl_path data/raw/04_output/metadata.jsonl \
-    --output_dir data/processed/dataset \
+
+Basic usage (single file):
+    uv run scripts/prepare_data.py \
+        --jsonl_paths data/raw/04_output/metadata.jsonl \
+        --output_dir data/processed/dataset
+
+Basic usage (multiple files):
+    uv run scripts/prepare_data.py \
+        --jsonl_paths data/raw/04_output/file1.jsonl data/raw/04_output/file2.jsonl \
+        --output_dir data/processed/dataset
+
+Basic usage (directory - processes all .jsonl files):
+    uv run scripts/prepare_data.py \
+        --jsonl_dir data/raw/04_output \
+        --output_dir data/processed/dataset
 """
 
 
@@ -31,12 +42,20 @@ def parse_args():
         description="Preprocess dataset: Validate images, translate captions (VN->EN), and save as Arrow format."
     )
 
-    # Path Arguments
-    parser.add_argument(
-        "--jsonl_path",
+    # Path Arguments - mutually exclusive group for file/directory input
+    input_group = parser.add_mutually_exclusive_group(required=True)
+
+    input_group.add_argument(
+        "--jsonl_paths",
         type=str,
-        default="data/raw/04_output/metadata.jsonl",
-        help="Path to the metadata.jsonl file containing image paths and captions.",
+        nargs="+",
+        help="Path(s) to JSONL file(s) containing image paths and captions. Can specify multiple files.",
+    )
+
+    input_group.add_argument(
+        "--jsonl_dir",
+        type=str,
+        help="Directory containing JSONL files. All .jsonl files in this directory will be processed.",
     )
 
     parser.add_argument(
@@ -68,6 +87,20 @@ def parse_args():
         help="Number of layers to offload to GPU. -1 means all layers (fastest).",
     )
 
+    parser.add_argument(
+        "--include_figures",
+        action="store_true",
+        default=True,
+        help="Include figure_detail entries from JSONL files (default: True).",
+    )
+
+    parser.add_argument(
+        "--no_figures",
+        action="store_false",
+        dest="include_figures",
+        help="Exclude figure_detail entries from JSONL files.",
+    )
+
     return parser.parse_args()
 
 
@@ -83,6 +116,40 @@ def main():
     logger.info("Initializing Data Preprocessor...")
 
     try:
+        # Determine which JSONL files to process
+        jsonl_paths = []
+
+        if args.jsonl_paths:
+            # Direct file paths provided
+            jsonl_paths = args.jsonl_paths
+            logger.info(f"Processing {len(jsonl_paths)} specified file(s)")
+
+        elif args.jsonl_dir:
+            # Directory provided - find all .jsonl files
+            jsonl_dir = args.jsonl_dir
+            if not os.path.isdir(jsonl_dir):
+                logger.error(f"Directory not found: {jsonl_dir}")
+                return
+
+            jsonl_paths = [
+                os.path.join(jsonl_dir, f)
+                for f in os.listdir(jsonl_dir)
+                if f.endswith(".jsonl")
+            ]
+            logger.info(f"Found {len(jsonl_paths)} JSONL file(s) in {jsonl_dir}")
+
+        if not jsonl_paths:
+            logger.error("No JSONL files found to process")
+            return
+
+        # Validate that all files exist
+        missing_files = [p for p in jsonl_paths if not os.path.exists(p)]
+        if missing_files:
+            logger.error(f"The following files were not found:")
+            for f in missing_files:
+                logger.error(f"  - {f}")
+            return
+
         # Initialize the processor (this loads the translation model)
         processor = DataPreprocessor(
             output_dir=args.output_dir,
@@ -90,16 +157,14 @@ def main():
             n_gpu_layers=args.n_gpu_layers,
         )
 
-        # Run the pipeline
-        if os.path.exists(args.jsonl_path):
-            logger.info(f"Processing file: {args.jsonl_path}")
-            processor.process_and_save(
-                jsonl_path=args.jsonl_path,
-                caption_column="caption_detail",  # Defaults to the detailed caption
-                image_root_override=args.image_root_override,
-            )
-        else:
-            logger.error(f"Input file not found: {args.jsonl_path}")
+        # Run the pipeline with all files
+        logger.info("Starting processing pipeline...")
+        processor.process_and_save(
+            jsonl_paths=jsonl_paths,
+            caption_column="caption_detail",  # Defaults to the detailed caption
+            image_root_override=args.image_root_override,
+            include_figures=args.include_figures,
+        )
 
     except Exception as e:
         logger.error(f"An error occurred during processing: {e}")

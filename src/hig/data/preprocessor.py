@@ -54,58 +54,113 @@ class DataPreprocessor:
                     continue
         return data
 
+    def _resolve_image_path(
+        self, img_path_str: str, image_root_override: Optional[str] = None
+    ) -> Path:
+        """
+        Resolve image path from string, handling Windows/Linux path conversions.
+
+        Args:
+            img_path_str: Original image path string
+            image_root_override: Optional root path override
+
+        Returns:
+            Resolved Path object
+        """
+        # Normalize Windows paths to use forward slashes for cross-platform compatibility
+        normalized_path = img_path_str.replace("\\", "/")
+
+        # Convert to Path object for cross-platform handling
+        img_path = Path(normalized_path)
+
+        # Handle path mapping (e.g., changing drive letters or remapping roots)
+        if image_root_override:
+            # Use only the filename with the new root
+            img_path = Path(image_root_override) / img_path.name
+        else:
+            # Convert Windows paths to Linux paths
+            # E.g., E:/VSCode/hdb/data/02_page_images/... -> data/raw/02_page_images/...
+            parts = img_path.parts
+
+            # Handle absolute Windows paths (with drive letters like 'E:')
+            if parts and (parts[0].endswith(":") or "\\" in img_path_str):
+                # Find 'data' in the path and extract everything after it
+                try:
+                    data_index = parts.index("data")
+                    relative_parts = parts[data_index + 1 :]
+                    img_path = Path("data/raw") / Path(*relative_parts)
+                except (ValueError, IndexError):
+                    # If 'data' not found, keep original path
+                    pass
+
+        return img_path
+
     def process_and_save(
         self,
-        jsonl_path: str,
+        jsonl_paths: List[str],
         caption_column: str = "caption_detail",
         image_root_override: Optional[str] = None,
+        include_figures: bool = True,
     ):
         """
-        Main pipeline: Read JSONL -> Validate Images -> Translate -> Save Dataset.
+        Main pipeline: Read JSONL files -> Validate Images -> Translate -> Save Dataset.
+
+        Args:
+            jsonl_paths: List of paths to JSONL files to process
+            caption_column: Column name for captions (default: "caption_detail")
+            image_root_override: Optional root path override for images
+            include_figures: Whether to include figure_detail entries (default: True)
         """
-        # TODO: also handling figures details in the future
-        raw_data = self.load_jsonl(jsonl_path)
+        # Ensure jsonl_paths is a list
+        if isinstance(jsonl_paths, str):
+            jsonl_paths = [jsonl_paths]
 
         valid_images = []
         valid_captions = []
 
-        # 1. Validation Phase
-        print(f"Validating {len(raw_data)} items...")
-        for item in tqdm(raw_data, desc="Checking files"):
-            img_path = item.get("image")
-            vn_text = item.get(caption_column)
+        # Process each JSONL file
+        for jsonl_path in jsonl_paths:
+            print(f"\n{'=' * 60}")
+            print(f"Processing: {jsonl_path}")
+            print(f"{'=' * 60}")
 
-            if not img_path or not vn_text:
-                continue
+            raw_data = self.load_jsonl(jsonl_path)
 
-            # TODO: Replace this with the use of pathlib for better path handling
-            # Handle path mapping (e.g., changing drive letters)
-            if image_root_override:
-                # Example: If raw path is "E:\data\img.png" and override is "/data"
-                # We strip the folder and join with new root.
-                # Adjust this logic based on your specific folder structure needs.
-                filename = os.path.basename(img_path)
-                # OR: relative_path = os.path.relpath(img_path, "OLD_ROOT")
-                img_path = os.path.join(image_root_override, filename)
-            else:
-                # Convert Windows paths to Linux paths
-                # E.g., E:\VSCode\hdb\data\02_page_images\... -> data/raw/02_page_images/...
-                if "\\" in img_path or img_path.startswith("E:"):
-                    # Extract the path after "data\"
-                    parts = img_path.replace("\\", "/").split("/")
-                    if "data" in parts:
-                        data_index = parts.index("data")
-                        relative_path = "/".join(parts[data_index + 1 :])
-                        img_path = os.path.join("data/raw", relative_path)
+            # 1. Validation Phase
+            print(f"Validating {len(raw_data)} items...")
+            for item in tqdm(raw_data, desc="Checking files"):
+                # Process main image-caption pair
+                img_path_str = item.get("image")
+                vn_text = item.get(caption_column)
 
-            if os.path.exists(img_path):
-                valid_images.append(img_path)
-                valid_captions.append(vn_text)
-            else:
-                # Optional: print only first few errors to avoid spam
-                pass
+                if img_path_str and vn_text:
+                    img_path = self._resolve_image_path(
+                        img_path_str, image_root_override
+                    )
+                    if img_path.exists():
+                        valid_images.append(str(img_path))
+                        valid_captions.append(vn_text)
 
-        print(f"Found {len(valid_images)} valid pairs out of {len(raw_data)} total.")
+                # Process figure_detail entries if present and enabled
+                if include_figures and "figure_detail" in item:
+                    figure_details = item.get("figure_detail", [])
+                    for figure in figure_details:
+                        fig_path_str = figure.get("path")
+                        fig_caption = figure.get("caption")
+
+                        if fig_path_str and fig_caption:
+                            fig_path = self._resolve_image_path(
+                                fig_path_str, image_root_override
+                            )
+                            if fig_path.exists():
+                                valid_images.append(str(fig_path))
+                                valid_captions.append(fig_caption)
+
+            print(f"Found {len(valid_images)} total valid pairs so far.")
+
+        print(f"\n{'=' * 60}")
+        print(f"Total valid pairs from all files: {len(valid_images)}")
+        print(f"{'=' * 60}\n")
 
         # Check if we have any valid data
         if len(valid_images) == 0:
@@ -133,6 +188,23 @@ class DataPreprocessor:
             except Exception as e:
                 print(f"Translation failed: {e}")
                 en_captions.append(vn_text)
+
+        print("Translation complete. Create a jsonl file to inspect samples:")
+        # Save a sample JSONL for inspection
+
+        sample_output_path = os.path.join(self.output_dir, "sample_translations.jsonl")
+        os.makedirs(self.output_dir, exist_ok=True)
+        with open(sample_output_path, "w", encoding="utf-8") as sample_f:
+            for img_path, vn_text, en_text in zip(
+                valid_images, valid_captions, en_captions
+            ):
+                sample_entry = {
+                    "image": img_path,
+                    "caption_vn": vn_text,
+                    "caption_en": en_text,
+                }
+                sample_f.write(json.dumps(sample_entry, ensure_ascii=False) + "\n")
+        print(f"Sample translations saved to: {sample_output_path}")
 
         # 3. Create Hugging Face Dataset
         print("Constructing Dataset...")
@@ -163,8 +235,16 @@ if __name__ == "__main__":
         n_gpu_layers=-1,  # Use all GPU layers for translation speed
     )
 
-    # Run
-    for filename in os.listdir(raw_data_folder):
-        if filename.endswith(".jsonl"):
-            jsonl_path = os.path.join(raw_data_folder, filename)
-            processor.process_and_save(jsonl_path)
+    # Collect all JSONL files
+    jsonl_files = [
+        str(raw_data_folder / filename)
+        for filename in os.listdir(raw_data_folder)
+        if filename.endswith(".jsonl")
+    ]
+
+    # Process all files at once
+    if jsonl_files:
+        print(f"Found {len(jsonl_files)} JSONL files to process")
+        processor.process_and_save(jsonl_files)
+    else:
+        print("No JSONL files found")
