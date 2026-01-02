@@ -1,4 +1,3 @@
-import os
 import re
 from llama_cpp import Llama
 from huggingface_hub import hf_hub_download
@@ -16,8 +15,8 @@ class VNTranslator:
     def __init__(
         self,
         model_path: Optional[str] = None,
-        repo_id: str = "Qwen/Qwen3-8B-GGUF",
-        filename: str = "Qwen3-8B-Q4_K_M.gguf",
+        repo_id: str = "Qwen/Qwen3-0.6B-GGUF",
+        filename: str = "Qwen3-0.6B-Q8_0.gguf",
         n_gpu_layers: int = -1,  # -1 = Offload all layers to GPU
         n_ctx: int = 4096,  # Context window
         verbose: bool = False,
@@ -57,6 +56,14 @@ class VNTranslator:
                 f"Failed to initialize llama-cpp. Ensure GPU drivers are set up. Error: {e}"
             )
 
+    def __del__(self):
+        """Cleanup method to properly close the model."""
+        try:
+            if hasattr(self, "llm") and self.llm is not None:
+                self.llm.close()
+        except Exception:
+            pass  # Ignore cleanup errors
+
     def translate(self, text: Union[str, List[str]]) -> Union[str, List[str]]:
         """
         Translates text from Vietnamese to English.
@@ -78,7 +85,7 @@ class VNTranslator:
             "Return ONLY the English translation. Do not include original text or explanations."
         )
         # Remove this line to switch to non-thinking mode
-        # text = text + "/no_think"
+        text = text + "/no_think"
         messages = [
             {"role": "system", "content": system_content},
             {"role": "user", "content": text},

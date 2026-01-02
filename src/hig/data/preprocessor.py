@@ -63,6 +63,7 @@ class DataPreprocessor:
         """
         Main pipeline: Read JSONL -> Validate Images -> Translate -> Save Dataset.
         """
+        # TODO: also handling figures details in the future
         raw_data = self.load_jsonl(jsonl_path)
 
         valid_images = []
@@ -77,6 +78,7 @@ class DataPreprocessor:
             if not img_path or not vn_text:
                 continue
 
+            # TODO: Replace this with the use of pathlib for better path handling
             # Handle path mapping (e.g., changing drive letters)
             if image_root_override:
                 # Example: If raw path is "E:\data\img.png" and override is "/data"
@@ -114,6 +116,10 @@ class DataPreprocessor:
         print("Starting translation...")
         en_captions = []
 
+        # For testing, limit to first item
+        # valid_captions = [valid_captions[0]]
+        # valid_images = [valid_images[0]]
+
         # We process one by one because GGUF via python loop is safer than batching manually
         # and allows for a nice progress bar.
         for vn_text in tqdm(valid_captions, desc="Translating"):
@@ -121,6 +127,7 @@ class DataPreprocessor:
                 en_text = self.translator.translate(vn_text)
                 # Fallback check: if translation returns empty, use original or placeholder
                 if not en_text:
+                    print("Translation returned empty string, using original text.")
                     en_text = vn_text
                 en_captions.append(en_text)
             except Exception as e:
@@ -142,7 +149,7 @@ class DataPreprocessor:
         # 4. Save to Disk
         os.makedirs(self.output_dir, exist_ok=True)
         hf_dataset.save_to_disk(self.output_dir)
-        print(f"✅ Success! Dataset saved to: {os.path.abspath(self.output_dir)}")
+        print(f"Success! Dataset saved to: {os.path.abspath(self.output_dir)}")
 
 
 # Usage Example
