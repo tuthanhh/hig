@@ -1,7 +1,8 @@
 import re
-from llama_cpp import Llama
+from typing import List, Optional, Union
+
 from huggingface_hub import hf_hub_download
-from typing import Union, List, Optional
+from llama_cpp import Llama
 
 """
 Translator module using GGUF models via llama.cpp for Vietnamese to English translation.
@@ -15,8 +16,8 @@ class VNTranslator:
     def __init__(
         self,
         model_path: Optional[str] = None,
-        repo_id: str = "Qwen/Qwen3-0.6B-GGUF",
-        filename: str = "Qwen3-0.6B-Q8_0.gguf",
+        repo_id: str = "Qwen/Qwen3-8B-GGUF",
+        filename: str = "Qwen3-8B-Q4_K_M.gguf",
         n_gpu_layers: int = -1,  # -1 = Offload all layers to GPU
         n_ctx: int = 4096,  # Context window
         verbose: bool = False,
@@ -69,21 +70,21 @@ class VNTranslator:
         Translates text from Vietnamese to English.
         """
         if isinstance(text, str):
-            print("Translating single string...")
-            print(f"Input VN: {text}")
+            # print("Translating single string...")
+            # print(f"Input VN: {text}")
             res = self._generate_translation(self._clean_content(text))
-            print(f"Output EN: {res}")
+            # print(f"Output EN: {res}")
             return res
         elif isinstance(text, list):
             # GGUF doesn't support true batching like PyTorch, so we loop.
             # This is still fast enough for preprocessing.
-            print(f"Translating list of {len(text)} strings...")
+            # print(f"Translating list of {len(text)} strings...")
             results = []
             for idx, item in enumerate(text):
-                print(f"\n[{idx + 1}/{len(text)}] Input VN: {item}")
+                # print(f"\n[{idx + 1}/{len(text)}] Input VN: {item}")
                 cleaned = self._clean_content(item)
                 translated = self._generate_translation(cleaned)
-                print(f"[{idx + 1}/{len(text)}] Output EN: {translated}")
+                # print(f"[{idx + 1}/{len(text)}] Output EN: {translated}")
                 results.append(translated)
             return results
         else:
