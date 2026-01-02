@@ -5,13 +5,14 @@ Vietnamese text-to-image generator using Flux.1 pipeline with:
 - FluxPipeline for inference
 - VNTranslator for Vietnamese to English translation
 - Optional LoRA weights for fine-tuned generation
+- Support for quantized model loading (4-bit, 8-bit)
 """
 
 import torch
-from diffusers import FluxPipeline
+from diffusers import FluxPipeline, FluxTransformer2DModel
 from hig.utils.translator import VNTranslator
 from hig.model.loader import FluxModelLoader
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Literal
 from PIL import Image
 
 
@@ -34,6 +35,7 @@ class FluxImageGenerator:
         device: str = "cuda",
         torch_dtype: torch.dtype = torch.bfloat16,
         enable_cpu_offload: bool = True,
+        quantization: Literal[None, "4bit", "8bit"] = None,
     ):
         """
         Args:
@@ -43,21 +45,27 @@ class FluxImageGenerator:
             device: 'cuda' or 'cpu'
             torch_dtype: Data type for model weights
             enable_cpu_offload: Enable CPU offloading for lower VRAM usage
+            quantization: Quantization mode - None, "4bit", or "8bit" (requires bitsandbytes)
         """
         self.device = device
         self.torch_dtype = torch_dtype
         self.model_id = model_id or self.DEFAULT_MODEL_ID
+        self.quantization = quantization
 
         # 1. Initialize Translator
         print("FluxGenerator: Initializing Vietnamese translator...")
         self.translator = VNTranslator(model_path=translator_model_path)
 
-        # 2. Initialize Flux Pipeline
+        # 2. Initialize Flux Pipeline with optional quantization
         print(f"FluxGenerator: Loading Flux pipeline from {self.model_id}...")
-        self.pipe = FluxPipeline.from_pretrained(
-            self.model_id,
-            torch_dtype=torch_dtype,
-        )
+
+        if quantization:
+            self._load_quantized_pipeline(quantization)
+        else:
+            self.pipe = FluxPipeline.from_pretrained(
+                self.model_id,
+                torch_dtype=torch_dtype,
+            )
 
         # 3. Load LoRA weights if provided
         if lora_weights_path:
@@ -71,6 +79,41 @@ class FluxImageGenerator:
             self.pipe.to(device)
 
         print("FluxGenerator: Ready for inference.")
+
+    def _load_quantized_pipeline(self, quantization: str):
+        """Load pipeline with quantized transformer model."""
+        from transformers import BitsAndBytesConfig
+
+        print(f"FluxGenerator: Loading with {quantization} quantization...")
+
+        if quantization == "4bit":
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=self.torch_dtype,
+                bnb_4bit_use_double_quant=True,
+            )
+        elif quantization == "8bit":
+            quantization_config = BitsAndBytesConfig(
+                load_in_8bit=True,
+            )
+        else:
+            raise ValueError(f"Unknown quantization mode: {quantization}")
+
+        # Load transformer with quantization
+        transformer = FluxTransformer2DModel.from_pretrained(
+            self.model_id,
+            subfolder="transformer",
+            quantization_config=quantization_config,
+            torch_dtype=self.torch_dtype,
+        )
+
+        # Load pipeline with quantized transformer
+        self.pipe = FluxPipeline.from_pretrained(
+            self.model_id,
+            transformer=transformer,
+            torch_dtype=self.torch_dtype,
+        )
 
     def generate(
         self,

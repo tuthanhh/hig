@@ -9,6 +9,12 @@ Usage:
 
     # Training-only mode (no model loading, just training UI)
     python scripts/run_inference.py --training-only [--share]
+
+    # Load with 4-bit quantization (saves ~18GB VRAM)
+    python scripts/run_inference.py --quantization 4bit [--share]
+
+    # Load with 8-bit quantization (saves ~12GB VRAM)
+    python scripts/run_inference.py --quantization 8bit [--share]
 """
 
 import argparse
@@ -56,6 +62,18 @@ def main():
         action="store_true",
         help="Launch training-only mode (no model loading)",
     )
+    parser.add_argument(
+        "--quantization",
+        type=str,
+        choices=["4bit", "8bit"],
+        default=None,
+        help="Load model with quantization (4bit or 8bit). Requires bitsandbytes.",
+    )
+    parser.add_argument(
+        "--no-cpu-offload",
+        action="store_true",
+        help="Disable CPU offloading (use more VRAM but faster)",
+    )
 
     args = parser.parse_args()
 
@@ -83,6 +101,8 @@ def main():
             model_id=args.model_id,
             lora_weights_path=args.lora_path,
             translator_model_path=args.translator_path,
+            quantization=args.quantization,
+            enable_cpu_offload=not args.no_cpu_offload,
         )
 
         # Launch web interface
