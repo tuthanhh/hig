@@ -101,7 +101,7 @@ class FluxImageGenerator:
         """
         # 1. Translate Vietnamese to English
         print(f"Input (VN): {prompt_vn}")
-        prompt_en = self.translator.translate(prompt_vn)
+        prompt_en = self.translator._generate_translation(prompt_vn)
         print(f"Translated (EN): {prompt_en}")
 
         # 2. Handle seed
