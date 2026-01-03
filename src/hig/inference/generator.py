@@ -70,7 +70,7 @@ class FluxImageGenerator:
         # 3. Load LoRA weights if provided
         if lora_weights_path:
             print(f"FluxGenerator: Loading LoRA weights from {lora_weights_path}")
-            self.pipe.load_lora_weights(lora_weights_path)
+            self._load_lora_weights(lora_weights_path)
 
         # 4. Enable memory optimizations
         if enable_cpu_offload:
@@ -79,6 +79,60 @@ class FluxImageGenerator:
             self.pipe.to(device)
 
         print("FluxGenerator: Ready for inference.")
+
+    def _load_lora_weights(self, lora_weights_path: str):
+        """Load LoRA weights from local path or HuggingFace repo."""
+        import os
+
+        # Check if it's a local path
+        if os.path.exists(lora_weights_path):
+            # Local directory or file
+            if os.path.isdir(lora_weights_path):
+                # Look for safetensors or pytorch files in the directory
+                safetensors_files = [
+                    f
+                    for f in os.listdir(lora_weights_path)
+                    if f.endswith(".safetensors")
+                ]
+                pytorch_files = [
+                    f
+                    for f in os.listdir(lora_weights_path)
+                    if f.endswith(".bin") or f.endswith(".pt")
+                ]
+
+                if safetensors_files:
+                    # Prefer adapter_model.safetensors if it exists
+                    if "adapter_model.safetensors" in safetensors_files:
+                        weight_name = "adapter_model.safetensors"
+                    else:
+                        weight_name = safetensors_files[0]
+                    self.pipe.load_lora_weights(
+                        lora_weights_path,
+                        weight_name=weight_name,
+                        local_files_only=True,
+                    )
+                elif pytorch_files:
+                    if "adapter_model.bin" in pytorch_files:
+                        weight_name = "adapter_model.bin"
+                    else:
+                        weight_name = pytorch_files[0]
+                    self.pipe.load_lora_weights(
+                        lora_weights_path,
+                        weight_name=weight_name,
+                        local_files_only=True,
+                    )
+                else:
+                    raise ValueError(f"No LoRA weights found in {lora_weights_path}")
+            else:
+                # Direct file path
+                dir_path = os.path.dirname(lora_weights_path)
+                weight_name = os.path.basename(lora_weights_path)
+                self.pipe.load_lora_weights(
+                    dir_path, weight_name=weight_name, local_files_only=True
+                )
+        else:
+            # Assume it's a HuggingFace repo ID
+            self.pipe.load_lora_weights(lora_weights_path)
 
     def _load_quantized_pipeline(self, quantization: str):
         """Load pipeline with quantized transformer model."""
