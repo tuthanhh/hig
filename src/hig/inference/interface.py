@@ -44,10 +44,12 @@ class FluxWebInterface:
     def predict(
         self,
         prompt: str,
+        negative_prompt: str,
         resolution: str,
         steps: int,
         guidance: float,
         seed: int,
+        max_sequence_length: int,
     ):
         """
         Generate image from Vietnamese prompt.
@@ -59,11 +61,13 @@ class FluxWebInterface:
 
         image, translated_text = self.generator.generate(
             prompt_vn=prompt,
+            negative_prompt=negative_prompt if negative_prompt.strip() else None,
             width=width,
             height=height,
             num_inference_steps=steps,
             guidance_scale=guidance,
             seed=int(seed),
+            max_sequence_length=int(max_sequence_length),
         )
         return image, translated_text
 
@@ -285,6 +289,13 @@ class FluxWebInterface:
                                 lines=3,
                             )
 
+                            negative_prompt = gr.Textbox(
+                                label="🚫 Negative Prompt (English, optional)",
+                                placeholder="e.g., blurry, low quality, distorted...",
+                                lines=2,
+                                info="What to avoid in the image (less effective with Flux)",
+                            )
+
                             resolution = gr.Dropdown(
                                 label="📐 Resolution",
                                 choices=list(self.RESOLUTION_PRESETS.keys()),
@@ -307,6 +318,14 @@ class FluxWebInterface:
                                     value=3.5,
                                     step=0.5,
                                     info="How closely to follow the prompt (3.5 is default for Flux)",
+                                )
+                                max_sequence_length = gr.Slider(
+                                    label="Max Sequence Length",
+                                    minimum=128,
+                                    maximum=512,
+                                    value=512,
+                                    step=64,
+                                    info="Max tokens for T5 encoder (longer prompts need more)",
                                 )
                                 seed = gr.Number(
                                     label="Seed",
@@ -334,7 +353,15 @@ class FluxWebInterface:
                     # Event handler
                     generate_btn.click(
                         fn=self.predict,
-                        inputs=[prompt, resolution, steps, guidance, seed],
+                        inputs=[
+                            prompt,
+                            negative_prompt,
+                            resolution,
+                            steps,
+                            guidance,
+                            seed,
+                            max_sequence_length,
+                        ],
                         outputs=[output_image, translated_output],
                     )
 
