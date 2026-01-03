@@ -80,9 +80,77 @@ class FluxImageGenerator:
 
         print("FluxGenerator: Ready for inference.")
 
+    def _select_best_lora_file(self, files: list) -> str:
+        """
+        Select the best LoRA file from a list of candidates.
+
+        Priority:
+        1. adapter_model.safetensors / adapter_model.bin (PEFT standard)
+        2. File without step number (e.g., model.safetensors) - likely final model
+        3. File with highest step number (e.g., model_000001000.safetensors)
+        4. First file alphabetically (fallback)
+        """
+        import re
+
+        print(
+            f"FluxGenerator: Selecting best LoRA file from {len(files)} candidates: {files}"
+        )
+
+        if not files:
+            return None
+
+        # Check for standard PEFT adapter names first
+        for standard_name in [
+            "adapter_model.safetensors",
+            "adapter_model.bin",
+            "pytorch_lora_weights.safetensors",
+        ]:
+            if standard_name in files:
+                print(f"FluxGenerator: Found standard PEFT file: {standard_name}")
+                return standard_name
+
+        # Separate files with step numbers from those without
+        step_pattern = re.compile(r"_(\d{6,})\.(?:safetensors|bin|pt)$")
+
+        files_with_steps = []
+        files_without_steps = []
+
+        for f in files:
+            # Skip optimizer files
+            if "optimizer" in f.lower():
+                print(f"FluxGenerator: Skipping optimizer file: {f}")
+                continue
+
+            match = step_pattern.search(f)
+            if match:
+                step_num = int(match.group(1))
+                files_with_steps.append((f, step_num))
+                print(f"FluxGenerator: Checkpoint file: {f} (step {step_num})")
+            else:
+                files_without_steps.append(f)
+                print(f"FluxGenerator: Final model file: {f}")
+
+        # Prefer files without step numbers (likely final model)
+        if files_without_steps:
+            files_without_steps.sort()
+            selected = files_without_steps[0]
+            print(f"FluxGenerator: Selected final model: {selected}")
+            return selected
+
+        # Otherwise, pick the checkpoint with highest step number
+        if files_with_steps:
+            files_with_steps.sort(key=lambda x: x[1], reverse=True)
+            selected = files_with_steps[0][0]
+            print(f"FluxGenerator: Selected highest checkpoint: {selected}")
+            return selected
+
+        # Fallback: return first file
+        return sorted(files)[0]
+
     def _load_lora_weights(self, lora_weights_path: str):
         """Load LoRA weights from local path or HuggingFace repo."""
         import os
+        import re
 
         # Normalize the path (handle trailing slashes, etc.)
         lora_weights_path = os.path.normpath(lora_weights_path)
@@ -106,21 +174,16 @@ class FluxImageGenerator:
                 )
 
                 if safetensors_files:
-                    # Prefer adapter_model.safetensors if it exists
-                    if "adapter_model.safetensors" in safetensors_files:
-                        weight_name = "adapter_model.safetensors"
-                    else:
-                        weight_name = safetensors_files[0]
+                    weight_name = self._select_best_lora_file(safetensors_files)
+                    print(f"FluxGenerator: Selected LoRA file: {weight_name}")
                     self.pipe.load_lora_weights(
                         lora_weights_path,
                         weight_name=weight_name,
                         local_files_only=True,
                     )
                 elif pytorch_files:
-                    if "adapter_model.bin" in pytorch_files:
-                        weight_name = "adapter_model.bin"
-                    else:
-                        weight_name = pytorch_files[0]
+                    weight_name = self._select_best_lora_file(pytorch_files)
+                    print(f"FluxGenerator: Selected LoRA file: {weight_name}")
                     self.pipe.load_lora_weights(
                         lora_weights_path,
                         weight_name=weight_name,
