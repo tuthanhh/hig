@@ -84,21 +84,26 @@ class FluxImageGenerator:
         """Load LoRA weights from local path or HuggingFace repo."""
         import os
 
+        # Normalize the path (handle trailing slashes, etc.)
+        lora_weights_path = os.path.normpath(lora_weights_path)
+
         # Check if it's a local path
-        if os.path.exists(lora_weights_path):
+        is_local = os.path.exists(lora_weights_path)
+        print(f"FluxGenerator: LoRA path '{lora_weights_path}' is_local={is_local}")
+
+        if is_local:
             # Local directory or file
             if os.path.isdir(lora_weights_path):
                 # Look for safetensors or pytorch files in the directory
-                safetensors_files = [
-                    f
-                    for f in os.listdir(lora_weights_path)
-                    if f.endswith(".safetensors")
-                ]
+                all_files = os.listdir(lora_weights_path)
+                safetensors_files = [f for f in all_files if f.endswith(".safetensors")]
                 pytorch_files = [
-                    f
-                    for f in os.listdir(lora_weights_path)
-                    if f.endswith(".bin") or f.endswith(".pt")
+                    f for f in all_files if f.endswith(".bin") or f.endswith(".pt")
                 ]
+
+                print(
+                    f"FluxGenerator: Found safetensors={safetensors_files}, pytorch={pytorch_files}"
+                )
 
                 if safetensors_files:
                     # Prefer adapter_model.safetensors if it exists
@@ -122,16 +127,25 @@ class FluxImageGenerator:
                         local_files_only=True,
                     )
                 else:
-                    raise ValueError(f"No LoRA weights found in {lora_weights_path}")
+                    raise ValueError(
+                        f"No LoRA weights found in {lora_weights_path}. Files in directory: {all_files}"
+                    )
             else:
                 # Direct file path
                 dir_path = os.path.dirname(lora_weights_path)
                 weight_name = os.path.basename(lora_weights_path)
+                print(f"FluxGenerator: Loading LoRA from file: {weight_name}")
                 self.pipe.load_lora_weights(
                     dir_path, weight_name=weight_name, local_files_only=True
                 )
         else:
+            # Check if it looks like a local path (contains / or \) but doesn't exist
+            if os.sep in lora_weights_path or "/" in lora_weights_path:
+                raise FileNotFoundError(
+                    f"LoRA weights path does not exist: {lora_weights_path}"
+                )
             # Assume it's a HuggingFace repo ID
+            print(f"FluxGenerator: Loading LoRA from HuggingFace: {lora_weights_path}")
             self.pipe.load_lora_weights(lora_weights_path)
 
     def _load_quantized_pipeline(self, quantization: str):
