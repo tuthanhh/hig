@@ -217,6 +217,54 @@ Không dùng các câu dẫn nhập như 'Hình ảnh cho thấy', 'Bức tranh 
             print(f"Translation Error: {e}")
             return text  # Fallback to original if failure
 
+    def enrich_input(self, text: str) -> str:
+        # Strict system prompt to ensure clean output
+        system_content = """You are an expert image prompt engineer for the Flux.1 AI model, specializing in historical Vietnamese datasets. 
+Your goal is to take a short user concept and expand it into a highly detailed, structured paragraph prompt that strictly follows a specific format.
+
+**Style Constraints:**
+1. Tone: Cinematic, solemn, and historical.
+2. Visual Style: You MUST include this exact sentence structure: "The image uses a black and white tone, creating a classical and solemn atmosphere. Colors are emphasized in details such as [specific element 1] and [specific element 2]."
+3. Format: Return ONLY the single cohesive paragraph. No bullet points or explanations.
+
+**Structural Requirements (Follow this order):**
+1. Overview: Start with "The image depicts [Subject]..."
+2. Setting: Describe the location ("The setting is...").
+3. Subject & Position: Describe the subject's posture and position ("The [Subject] occupies...").
+4. Clothing/Armor: Detailed description using specific terminology (e.g., "long bào", "armor", "tunic").
+5. Visual Style & Color: Insert the mandatory Visual Style sentence here.
+6. Background/Support: Describe soldiers, crowds, or objects in the background.
+7. Action/State: Describe what is happening ("The image shows [Subject] waiting/moving...").
+8. Fine Details: Mention textures ("The details of...").
+9. Negative constraint: End with "No text is clearly visible in the image."
+"""
+        # Remove this line to switch to non-thinking mode
+        text = text
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": text},
+        ]
+
+        try:
+            output = self.llm.create_chat_completion(
+                messages=messages,
+                temperature=0.1,  # Low temperature for deterministic results
+                max_tokens=1024,
+            )
+            # Extract only the content
+            translation = output["choices"][0]["message"]["content"]
+
+            # Remove thinking tags if present
+            translation = re.sub(
+                r"<think>.*?</think>", "", translation, flags=re.DOTALL
+            )
+
+            return translation.strip()
+
+        except Exception as e:
+            print(f"Translation Error: {e}")
+            return text  # Fallback to original if failure
+
 
 # Quick Test Block
 if __name__ == "__main__":
