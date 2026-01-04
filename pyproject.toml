@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Vietnamese Historical Image Generation with Flux.1"
 readme = "README.md"
 authors = [
-    { name = "TuThanh", email = "tuthanh10825@gmail.com" }
+    { name = "TuThanh", email = "tuthanh10825@gmail.com" },
+    { name = "ItsDangQuan", email = "itsdangquan@gmail.com" },
 ]
 requires-python = ">=3.13"
 dependencies = [
@@ -42,6 +43,4 @@ requires = ["uv_build>=0.9.16,<0.10.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-]
+dev = ["pytest>=9.0.2"]
